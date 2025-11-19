@@ -1,0 +1,636 @@
+openapi: 3.0.0
+info:
+  title: Medication Tracker API
+  description: API backend pour l'application de suivi de médicaments avec authentification Clerk
+  version: 1.0.0
+  contact:
+    name: Support API
+    email: support@medicationtracker.com
+
+servers:
+  - url: http://localhost:3000/api
+    description: Serveur de développement
+  - url: https://api.medicationtracker.com/api
+    description: Serveur de production
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  
+  schemas:
+    Medication:
+      type: object
+      required:
+        - name
+        - dosage
+        - times
+        - startDate
+        - duration
+        - color
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID unique du médicament
+        userId:
+          type: string
+          description: ID de l'utilisateur (Clerk)
+        name:
+          type: string
+          description: Nom du médicament
+          example: "Paracétamol"
+        dosage:
+          type: string
+          description: Dosage du médicament
+          example: "500mg"
+        times:
+          type: array
+          items:
+            type: string
+          description: Horaires de prise
+          example: ["09:00", "21:00"]
+        startDate:
+          type: string
+          format: date
+          description: Date de début du traitement
+          example: "2024-01-15"
+        duration:
+          type: string
+          description: Durée du traitement
+          example: "30 days"
+        color:
+          type: string
+          description: Couleur d'affichage du médicament
+          example: "#4CAF50"
+        reminderEnabled:
+          type: boolean
+          description: Activation des rappels
+          default: true
+        currentSupply:
+          type: integer
+          description: Stock actuel
+          default: 0
+        totalSupply:
+          type: integer
+          description: Stock total
+          default: 0
+        refillAt:
+          type: integer
+          description: Seuil d'alerte pour le renouvellement
+          default: 0
+        refillReminder:
+          type: boolean
+          description: Activation des rappels de renouvellement
+          default: false
+        lastRefillDate:
+          type: string
+          format: date
+          description: Date du dernier renouvellement
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Date de création
+        updatedAt:
+          type: string
+          format: date-time
+          description: Date de mise à jour
+
+    DoseHistory:
+      type: object
+      required:
+        - medicationId
+        - timestamp
+        - taken
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID unique de la prise
+        medicationId:
+          type: string
+          format: uuid
+          description: ID du médicament
+        userId:
+          type: string
+          description: ID de l'utilisateur
+        timestamp:
+          type: string
+          format: date-time
+          description: Date et heure de la prise
+        taken:
+          type: boolean
+          description: Indique si la dose a été prise
+        createdAt:
+          type: string
+          format: date-time
+          description: Date de création
+        medicationName:
+          type: string
+          description: Nom du médicament (enrichi)
+        medicationDosage:
+          type: string
+          description: Dosage du médicament (enrichi)
+        medicationColor:
+          type: string
+          description: Couleur du médicament (enrichi)
+
+    MedicationStats:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID du médicament
+        name:
+          type: string
+          description: Nom du médicament
+        dosage:
+          type: string
+          description: Dosage
+        color:
+          type: string
+          description: Couleur
+        totalDoses:
+          type: integer
+          description: Nombre total de doses programmées
+        takenDoses:
+          type: integer
+          description: Nombre de doses prises
+        missedDoses:
+          type: integer
+          description: Nombre de doses manquées
+        adherenceRate:
+          type: number
+          format: float
+          description: Taux d'observance en pourcentage
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Message d'erreur
+          example: "Failed to fetch medications"
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "OK"
+        timestamp:
+          type: string
+          format: date-time
+        user:
+          type: string
+          description: ID de l'utilisateur authentifié
+
+  parameters:
+    MedicationId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: ID du médicament
+    
+    MedicationIdQuery:
+      name: medicationId
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Filtrer par ID de médicament
+
+    StartDate:
+      name: startDate
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date
+      description: Date de début pour le filtre
+
+    EndDate:
+      name: endDate
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date
+      description: Date de fin pour le filtre
+
+    Days:
+      name: days
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 30
+      description: Nombre de jours pour les statistiques
+
+security:
+  - BearerAuth: []
+
+paths:
+  # === HEALTH CHECK ===
+  /health:
+    get:
+      summary: Vérification de l'état de l'API
+      description: Retourne l'état de l'API et l'utilisateur authentifié
+      tags:
+        - Health
+      responses:
+        '200':
+          description: API opérationnelle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '401':
+          description: Non authentifié
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # === MÉDICAMENTS ===
+  /medications:
+    get:
+      summary: Récupérer tous les médicaments de l'utilisateur
+      description: Retourne la liste de tous les médicaments de l'utilisateur authentifié
+      tags:
+        - Medications
+      responses:
+        '200':
+          description: Liste des médicaments récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Medication'
+        '401':
+          description: Non authentifié
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Erreur serveur
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      summary: Créer un nouveau médicament
+      description: Ajoute un nouveau médicament pour l'utilisateur authentifié
+      tags:
+        - Medications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - dosage
+                - times
+                - startDate
+                - duration
+                - color
+              properties:
+                name:
+                  type: string
+                dosage:
+                  type: string
+                times:
+                  type: array
+                  items:
+                    type: string
+                startDate:
+                  type: string
+                  format: date
+                duration:
+                  type: string
+                color:
+                  type: string
+                reminderEnabled:
+                  type: boolean
+                currentSupply:
+                  type: integer
+                totalSupply:
+                  type: integer
+                refillAt:
+                  type: integer
+                refillReminder:
+                  type: boolean
+                lastRefillDate:
+                  type: string
+                  format: date
+                  nullable: true
+      responses:
+        '201':
+          description: Médicament créé avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Medication'
+        '400':
+          description: Données invalides
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+  /medications/{id}:
+    put:
+      summary: Mettre à jour un médicament
+      description: Met à jour les informations d'un médicament existant
+      tags:
+        - Medications
+      parameters:
+        - $ref: '#/components/parameters/MedicationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Medication'
+      responses:
+        '200':
+          description: Médicament mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Medication'
+        '404':
+          description: Médicament non trouvé
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+    delete:
+      summary: Supprimer un médicament
+      description: Supprime un médicament et son historique associé
+      tags:
+        - Medications
+      parameters:
+        - $ref: '#/components/parameters/MedicationId'
+      responses:
+        '204':
+          description: Médicament supprimé avec succès
+        '404':
+          description: Médicament non trouvé
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+  /medications/{id}/supply:
+    patch:
+      summary: Mettre à jour le stock d'un médicament
+      description: Met à jour le stock actuel et la date de dernier renouvellement
+      tags:
+        - Medications
+      parameters:
+        - $ref: '#/components/parameters/MedicationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentSupply
+              properties:
+                currentSupply:
+                  type: integer
+                lastRefillDate:
+                  type: string
+                  format: date
+      responses:
+        '200':
+          description: Stock mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Medication'
+        '404':
+          description: Médicament non trouvé
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+  # === HISTORIQUE DES PRISES ===
+  /dose-history:
+    get:
+      summary: Récupérer l'historique des prises
+      description: Retourne l'historique des prises avec possibilité de filtrage
+      tags:
+        - Dose History
+      parameters:
+        - $ref: '#/components/parameters/MedicationIdQuery'
+        - $ref: '#/components/parameters/StartDate'
+        - $ref: '#/components/parameters/EndDate'
+      responses:
+        '200':
+          description: Historique récupéré avec succès
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DoseHistory'
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+  /dose-history/today:
+    get:
+      summary: Récupérer les prises du jour
+      description: Retourne les prises enregistrées pour la date actuelle
+      tags:
+        - Dose History
+      responses:
+        '200':
+          description: Prises du jour récupérées avec succès
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DoseHistory'
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+    post:
+      summary: Enregistrer une prise de médicament
+      description: Enregistre une prise (prise ou manquée) et met à jour le stock si nécessaire
+      tags:
+        - Dose History
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - medicationId
+                - taken
+                - timestamp
+              properties:
+                medicationId:
+                  type: string
+                  format: uuid
+                taken:
+                  type: boolean
+                timestamp:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Prise enregistrée avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoseHistory'
+        '404':
+          description: Médicament non trouvé
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+  /dose-history/medication/{medicationId}:
+    delete:
+      summary: Supprimer l'historique d'un médicament
+      description: Supprime tout l'historique des prises pour un médicament spécifique
+      tags:
+        - Dose History
+      parameters:
+        - name: medicationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID du médicament
+      responses:
+        '204':
+          description: Historique supprimé avec succès
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+  # === RAPPELS ET STATISTIQUES ===
+  /reminders/refill:
+    get:
+      summary: Récupérer les rappels de renouvellement
+      description: Retourne la liste des médicaments nécessitant un renouvellement
+      tags:
+        - Reminders
+      responses:
+        '200':
+          description: Rappels récupérés avec succès
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Medication'
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+  /reminders/today:
+    get:
+      summary: Récupérer les médicaments du jour avec rappels
+      description: Retourne les médicaments programmés pour aujourd'hui avec leur statut de prise
+      tags:
+        - Reminders
+      responses:
+        '200':
+          description: Médicaments du jour récupérés avec succès
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    name:
+                      type: string
+                    dosage:
+                      type: string
+                    times:
+                      type: array
+                      items:
+                        type: string
+                    color:
+                      type: string
+                    reminderEnabled:
+                      type: boolean
+                    takenToday:
+                      type: integer
+                      description: Nombre de doses prises aujourd'hui
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+  /stats:
+    get:
+      summary: Récupérer les statistiques d'observance
+      description: Retourne les statistiques d'observance thérapeutique sur une période
+      tags:
+        - Statistics
+      parameters:
+        - $ref: '#/components/parameters/Days'
+      responses:
+        '200':
+          description: Statistiques récupérées avec succès
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MedicationStats'
+        '401':
+          description: Non authentifié
+        '500':
+          description: Erreur serveur
+
+tags:
+  - name: Health
+    description: Endpoints de vérification de l'état de l'API
+  - name: Medications
+    description: Gestion des médicaments
+  - name: Dose History
+    description: Historique des prises de médicaments
+  - name: Reminders
+    description: Rappels et notifications
+  - name: Statistics
+    description: Statistiques d'observance
