@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="./mobile/assets/images/screenshots/icon.png" width="128" height="128" style="display: block; margin: 0 auto" />
+    <img src="./mobile/assets/images/screenshots/icon.png" width="200" height="250" style="display: block; margin: 0 auto" />
     <h1>💊 MedRemind : Suivi Médical & Rappels Intelligents ✨</h1>
     <p>
         <strong>MedRemind</strong> est une application dédiée au suivi des traitements médicaux : gestion des médicaments, rappels de prise, historique détaillé et statistiques d’observance. <br><br>
